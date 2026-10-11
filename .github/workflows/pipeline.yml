@@ -185,9 +185,22 @@ jobs:
             --secrets findings/gitleaks.json \
             --min-sast-score "$SAST_MIN_SCORE"
 
-  # Stap 3 (uitrollen) komt hier, later:
-  #
-  # deploy:
-  #   needs: gate
-  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-  #   runs-on: [self-hosted, g08]   # enkel hier, nooit voor pull requests van forks
+  # Stap 3: uitrollen. Enkel na een geslaagde poort en enkel bij een push naar main.
+  # De runner doet geen checkout en krijgt geen geheimen: hij geeft alleen de SHA door aan
+  # een script dat root beheert (/usr/local/sbin/deploy-unbreakable.sh). Dat script haalt de
+  # code zelf op en weigert elke commit die niet op main staat.
+  # DSOMM: Deployment / "Automated deployment process" (L1)
+  deploy:
+    name: Uitrollen naar g08
+    needs: gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-g08
+      cancel-in-progress: false
+    steps:
+      - name: Uitrollen (enkel de commit die door de poort kwam)
+        env:
+          SHA: ${{ github.sha }}
+        run: sudo -n /usr/local/sbin/deploy-unbreakable.sh "$SHA"
