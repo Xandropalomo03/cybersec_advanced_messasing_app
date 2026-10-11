@@ -1,0 +1,30 @@
+[
+  {
+    "tool": "sca",
+    "id": "GHSA-5crp-9r3c-p9vr",
+    "package": "Newtonsoft.Json",
+    "verdict": "echt-probleem",
+    "reason": "Oude versie 12.0.1 in de starter app. De library wordt enkel gebruikt om uitgaande data te serialiseren (/messages/export), niet om invoer van gebruikers te parsen, dus de misbruikbaarheid is laag. Updaten naar 13.0.1 of hoger gebeurt bij de volgende opdracht."
+  },
+  {
+    "tool": "sast",
+    "id": "cs/sql-injection",
+    "file": "app/Program.cs",
+    "verdict": "echt-probleem",
+    "reason": "Bewuste kwetsbaarheid van de starter app: de zoekopdracht q wordt in een SQL-string geplakt. De opdracht vraagt niet om dit nu te herstellen. De app bevat enkel testdata. Oplossing later: geparametriseerde query's (FromSqlInterpolated)."
+  },
+  {
+    "tool": "sast",
+    "id": "js/xss",
+    "file": "app/wwwroot/js/app.js",
+    "verdict": "echt-probleem",
+    "reason": "Bewuste kwetsbaarheid van de starter app: de zoekterm uit de URL gaat via jQuery .html() de pagina in (DOM-XSS). Niet herstellen is toegelaten in deze opdracht. Oplossing later: .text() gebruiken en een Content-Security-Policy instellen."
+  },
+  {
+    "tool": "secrets",
+    "id": "993319e51d37302e31c80d95e47cab5b89f7d38c:app/appsettings.json:generic-api-key:15",
+    "file": "app/appsettings.json",
+    "verdict": "false-positive",
+    "reason": "De ApiKey is een voorbeeldwaarde van de starter app voor een endpoint op het gereserveerde domein .example, dat niet bestaat. Het geeft dus geen toegang tot een echte dienst. Het patroon (geheimen in code) is wel een zwakte; geheimen horen later in Docker secrets."
+  }
+]

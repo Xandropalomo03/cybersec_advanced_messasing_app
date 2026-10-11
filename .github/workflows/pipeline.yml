@@ -1,0 +1,193 @@
+# Pipeline voor websec-unbreakable (Opdracht 2, stap 2).
+#
+# Elke scan geeft aan welke DSOMM-activiteit hij invult:
+#
+#   sca      -> Test and Verification / Static depth for applications:
+#               "Software Composition Analysis (server side)"           (L2)
+#   sast     -> Test and Verification / Static depth for applications:
+#               "Static analysis for important server side components"  (L3, C#)
+#               "Static analysis for important client side components"  (L3, SPA)
+#   secrets  -> Test and Verification / Static depth for infrastructure:
+#               "Test for stored secrets in code"                       (L1)
+#   gate     -> Test and Verification / Consolidation:
+#               "Treatment of defects with high or critical severity"   (L1)
+#               "Simple false positive treatment"                       (L1)
+#
+# Bijkomend, door de manier van bouwen:
+#   - dotnet restore --locked-mode + acties vastgepind op commit-SHA
+#     -> Build / "Pinning of artifacts" (L2)
+#   - scans lopen op een schone, wegwerp GitHub-hosted runner
+#     -> Build / "Building and testing of artifacts in virtualized environments" (L2)
+#
+# Wat is "kritiek"? (eigen keuze, zie scripts/security_gate.py)
+#   SCA: High of Critical | SAST: security-severity >= 7.0 | Secrets: alles.
+#
+# De scans falen zelf nooit op een bevinding. Enkel de job "gate" beslist, zodat
+# aanvaarde bevindingen (.security/accepted-findings.json) op 1 plek beheerd worden.
+
+name: pipeline
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Standaard enkel lezen. Jobs krijgen niet meer dan dat.
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SAST_MIN_SCORE: "7.0"
+  GITLEAKS_VERSION: "8.30.1"
+  # sha256 van gitleaks_8.30.1_linux_x64.tar.gz, gelijk aan de officiele checksums.txt van de release
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
+jobs:
+  sca:
+    name: SCA (NuGet audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+
+      # Vergrendeld op packages.lock.json: een afwijkende versie laat de restore falen.
+      - name: Restore
+        run: dotnet restore app/Unbreakable.csproj --locked-mode
+
+      - name: Kwetsbare packages (inclusief transitieve)
+        run: dotnet list app/Unbreakable.csproj package --vulnerable --include-transitive --format json > sca.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sca
+          path: sca.json
+          if-no-files-found: error
+          retention-days: 14
+
+  sast:
+    name: SAST (CodeQL, ${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # CodeQL leest enkel zijn eigen instellingen via de API; schrijven doet hij niet (upload: never).
+    permissions:
+      contents: read
+      security-events: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [csharp, javascript-typescript]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@88585263c0627ee42c0e1c5143a112c8d6f4aa18 # v4.38.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config: |
+            paths-ignore:
+              - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
+
+      # upload: never -> de resultaten gaan niet naar het Security-tabblad (dat laat
+      # de pipeline toch niet falen), maar naar een SARIF-bestand voor onze poort.
+      # Staat "Code scanning default setup" aan in je repo-instellingen? Zet het uit,
+      # anders botst het met deze workflow.
+      - uses: github/codeql-action/analyze@88585263c0627ee42c0e1c5143a112c8d6f4aa18 # v4.38.2
+        with:
+          category: /language:${{ matrix.language }}
+          upload: never
+          output: sarif-results
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sarif-${{ matrix.language }}
+          path: sarif-results/*.sarif
+          if-no-files-found: error
+          retention-days: 14
+
+  secrets:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # ook de geschiedenis: een geheim dat verwijderd is, blijft in git
+          persist-credentials: false
+
+      - name: Gitleaks installeren (vaste versie, checksum gecontroleerd)
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+
+      # --redact: het rapport wordt als artifact bewaard en dat is publiek in een publieke repo.
+      # --exit-code 0: de poort beslist, niet de scan. Een echte fout van gitleaks laat de stap wel falen.
+      - name: Scannen
+        run: |
+          ./gitleaks git --report-format json --report-path gitleaks.json --redact --exit-code 0 --no-banner .
+          [ -f gitleaks.json ] || echo '[]' > gitleaks.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: secrets
+          path: gitleaks.json
+          if-no-files-found: error
+          retention-days: 14
+
+  gate:
+    name: Poort (nieuwe kritieke bevindingen)
+    needs: [sca, sast, secrets]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Een scan die zelf kapot ging mag nooit als "niets gevonden" tellen.
+      - name: Alle scans moeten gelopen zijn
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::Een scan is niet geslaagd uitgevoerd: $RESULTS"
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: findings
+          merge-multiple: true
+
+      - name: Poort
+        run: |
+          python3 .github/scripts/security_gate.py \
+            --accepted .security/accepted-findings.json \
+            --sca findings/sca.json \
+            --sast "findings/*.sarif" \
+            --secrets findings/gitleaks.json \
+            --min-sast-score "$SAST_MIN_SCORE"
+
+  # Stap 3 (uitrollen) komt hier, later:
+  #
+  # deploy:
+  #   needs: gate
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   runs-on: [self-hosted, g08]   # enkel hier, nooit voor pull requests van forks
