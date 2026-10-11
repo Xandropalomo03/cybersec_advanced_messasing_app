@@ -136,7 +136,7 @@ def parse_sarif(pattern, min_score):
                 loc = ((res.get("locations") or [{}])[0]).get("physicalLocation", {})
                 out.append(Finding(
                     "sast", rid, sarif_label(score, level), critical,
-                    (res.get("message") or {}).get("text", "")[:160],
+                    " ".join(((res.get("message") or {}).get("text", "")).split()).replace("|", "/")[:160],
                     file=(loc.get("artifactLocation") or {}).get("uri", "?"),
                     line=(loc.get("region") or {}).get("startLine"),
                 ))
