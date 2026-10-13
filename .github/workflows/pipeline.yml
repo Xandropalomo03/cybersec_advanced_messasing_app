@@ -88,26 +88,24 @@ jobs:
       matrix:
         include:
           - language: csharp
-            # Eigen, volledige config per taal: interpolatie midden in een
-            # YAML-structuur maakt de config ongeldig voor CodeQL.
-            codeql-config: |
-              paths-ignore:
-                - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
-              queries: +.github/codeql/custom-queries/csharp   # '+' = toevoegen aan standaard suite
+            queries: "+.github/codeql/custom-queries/csharp"   # '+' = toevoegen aan standaard suite
           - language: javascript-typescript
-            codeql-config: |
-              paths-ignore:
-                - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
+            queries: ""   # leeg = enkel de standaard suite
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # NB: 'queries' hoort als input bij init (ondersteunt '+'), niet in de
+      # config-file (die verwacht daar een lijst-structuur).
       - uses: github/codeql-action/init@88585263c0627ee42c0e1c5143a112c8d6f4aa18 # v4.38.2
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-          config: ${{ matrix.codeql-config }}
+          queries: ${{ matrix.queries }}
+          config: |
+            paths-ignore:
+              - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
 
       # upload: never -> de resultaten gaan niet naar het Security-tabblad (dat laat
       # de pipeline toch niet falen), maar naar een SARIF-bestand voor onze poort.
