@@ -89,19 +89,5 @@
     "file": "DELETE /api/messages/{id}",
     "verdict": "echt-probleem",
     "reason": "Bewuste zwakte van de starter app: geen eigenaarcontrole bij verwijderen. Oplossing later: enkel de afzender of ontvanger mag verwijderen."
-  },
-  {
-    "tool": "container",
-    "id": "DS001",
-    "file": "app/Dockerfile",
-    "verdict": "echt-probleem",
-    "reason": "Container draait als root (geen USER directive in Dockerfile). Starter app heeft geen non-root user. Oplossing later: non-root user toevoegen in Dockerfile."
-  },
-  {
-    "tool": "container",
-    "id": "CVE-2024-XXXX",
-    "file": "mcr.microsoft.com/dotnet/aspnet:10.0",
-    "verdict": "echt-probleem",
-    "reason": "Base image CVEs in mcr.microsoft.com/dotnet/aspnet:10.0. Starter app gebruikt Microsoft base image. Oplossing later: base image updaten naar nieuwste patch versie."
   }
 ]

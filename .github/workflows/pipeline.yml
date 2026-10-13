@@ -217,7 +217,7 @@ jobs:
         with:
           image-ref: 'unbreakable:scan'
           format: 'sarif'
-          output: 'trivy.sarif'
+          output: 'trivy-container.json'
           severity: 'HIGH,CRITICAL'
           scanners: 'vuln,misconfig,secret'
           exit-code: '0'  # gate beslist, niet de scan
@@ -225,7 +225,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: container-scan
-          path: trivy.sarif
+          path: trivy-container.json
           if-no-files-found: error
           retention-days: 14
 
@@ -265,7 +265,7 @@ jobs:
             --sast "findings/*.sarif" \
             --secrets findings/gitleaks.json \
             --tests findings/tests.json \
-            --container findings/trivy.sarif \
+            --container findings/trivy-container.json \
             --min-sast-score "$SAST_MIN_SCORE"
 
   # Stap 3: uitrollen. Enkel na een geslaagde poort en enkel bij een push naar main.

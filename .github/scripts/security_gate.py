@@ -195,9 +195,15 @@ def parse_trivy(path):
                 continue
             rid = res.get("ruleId") or res.get("rule", {}).get("id") or "onbekend"
             rule = rules.get(rid, {})
-            # Trivy SARIF gebruikt "severity" in properties
-            sev = (rule.get("properties") or {}).get("severity", "UNKNOWN").lower()
-            critical = sev in ("high", "critical")
+            # Trivy SARIF: security-severity (CVSS score) of level
+            score = (rule.get("properties") or {}).get("security-severity")
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                score = None
+            level = res.get("level") or (rule.get("defaultConfiguration") or {}).get("level", "warning")
+            critical = score >= 7.0 if score is not None else level == "error"
+            sev = sarif_label(score, level)
             loc = ((res.get("locations") or [{}])[0]).get("physicalLocation", {})
             out.append(Finding(
                 "container", rid, sev.upper(), critical,
