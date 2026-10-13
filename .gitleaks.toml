@@ -1,0 +1,31 @@
+title = "Unbreakable custom secret rules"
+
+# De standaardregels van gitleaks blijven actief (o.a. generic-api-key),
+# onze custom rules komen er bovenop.
+[extend]
+useDefaultRules = true
+
+[[rules]]
+id = "connection-string-password"
+description = "Connection string met Password of Pwd veld (PostgreSQL, SQL Server, etc.)"
+# NB: gitleaks gebruikt RE2 -> geen lookaheads (?=). De grens zit in de charclass.
+regex = '''(?i)(?:password|pwd)\s*=\s*([^;&|'"\s]{4,})'''
+secretGroup = 1
+tags = ["connection-string", "password"]
+entropy = 3.0
+
+[[rules]]
+id = "docker-compose-postgres-password"
+description = "Docker Compose POSTGRES_PASSWORD environment variable"
+regex = '''(?i)POSTGRES_PASSWORD\s*[:=]\s*["']?([^"'\s]{4,})'''
+secretGroup = 1
+tags = ["docker", "postgres", "password"]
+entropy = 3.0
+
+[[rules]]
+id = "docker-compose-mysql-password"
+description = "Docker Compose MYSQL_PASSWORD / MYSQL_ROOT_PASSWORD environment variable"
+regex = '''(?i)MYSQL_(ROOT_)?PASSWORD\s*[:=]\s*["']?([^"'\s]{4,})'''
+secretGroup = 2
+tags = ["docker", "mysql", "password"]
+entropy = 3.0

@@ -86,7 +86,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [csharp, javascript-typescript]
+        include:
+          - language: csharp
+            codeql-config: |
+              paths-ignore:
+                - app/wwwroot/lib
+              queries:
+                - uses: ./.github/codeql/custom-queries/csharp
+          - language: javascript-typescript
+            codeql-config: |
+              paths-ignore:
+                - app/wwwroot/lib
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,9 +106,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-          config: |
-            paths-ignore:
-              - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
+          config: ${{ matrix.codeql-config }}
 
       # upload: never -> de resultaten gaan niet naar het Security-tabblad (dat laat
       # de pipeline toch niet falen), maar naar een SARIF-bestand voor onze poort.
@@ -136,9 +144,11 @@ jobs:
 
       # --redact: het rapport wordt als artifact bewaard en dat is publiek in een publieke repo.
       # --exit-code 0: de poort beslist, niet de scan. Een echte fout van gitleaks laat de stap wel falen.
+      # --config .gitleaks.toml: custom regels voor connection strings, Docker env vars, etc.
       - name: Scannen
         run: |
-          ./gitleaks git --report-format json --report-path gitleaks.json --redact --exit-code 0 --no-banner .
+          ./gitleaks git --config .gitleaks.toml \
+            --report-format json --report-path gitleaks.json --redact --exit-code 0 --no-banner .
           [ -f gitleaks.json ] || echo '[]' > gitleaks.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
