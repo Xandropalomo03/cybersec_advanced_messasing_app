@@ -3,7 +3,7 @@ title = "Unbreakable custom secret rules"
 # De standaardregels van gitleaks blijven actief (o.a. generic-api-key),
 # onze custom rules komen er bovenop.
 [extend]
-useDefaultRules = true
+useDefault = true
 
 [[rules]]
 id = "connection-string-password"

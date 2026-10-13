@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Poort van de pipeline: laat de run falen bij een NIEUWE kritieke bevinding.
 
-Leest de resultaten van drie scans:
+Leest de resultaten van vier controles:
   - SCA      : uitvoer van `dotnet list package --vulnerable --format json`
   - SAST     : SARIF-bestanden van CodeQL
   - Secrets  : JSON-rapport van gitleaks
+  - Tests    : JSON van security_tests.py (gedrag van de draaiende app)
 
 Een bevinding is "aanvaard" als ze in .security/accepted-findings.json staat,
 met een verdict en een reden. Een aanvaarding zonder reden laat de pipeline
@@ -16,6 +17,7 @@ Wat is "kritiek"?
   - SAST    : security-severity >= --min-sast-score (standaard 7.0),
               of level "error" als een regel geen score heeft
   - Secrets : elke gevonden geheim
+  - Tests   : elke test die misbruik kan aantonen (elke test is een beveiligingseis)
 
 Enkel standaardbibliotheek, zodat er niets extra te installeren (en te vertrouwen) is.
 """
@@ -25,7 +27,7 @@ import json
 import os
 import sys
 
-TOOLS = ("sca", "sast", "secrets")
+TOOLS = ("sca", "sast", "secrets", "tests")
 VERDICTS = ("echt-probleem", "false-positive")
 MIN_REASON_LEN = 15
 
@@ -159,6 +161,24 @@ def parse_secrets(path):
     return out
 
 
+SKIPPED_TESTS = []
+
+
+def parse_tests(path):
+    data = load_json(path)
+    if not isinstance(data, dict) or "findings" not in data:
+        fail_closed(f"Verwacht een object met 'findings' in {path}")
+    SKIPPED_TESTS.extend(data.get("skipped", []))
+    out = []
+    for t in data["findings"]:
+        out.append(Finding(
+            "tests", t.get("id", "onbekend"), t.get("severity", "high"), True,
+            f"{t.get('title', '')} (verwacht {t.get('expected', '?')}, kreeg {t.get('actual', '?')})"[:200],
+            file=t.get("endpoint"),
+        ))
+    return out
+
+
 # ----------------------------------------------------------------------------
 # Aanvaarde bevindingen
 # ----------------------------------------------------------------------------
@@ -214,6 +234,7 @@ def main():
     ap.add_argument("--sca", required=True)
     ap.add_argument("--sast", required=True, help="glob naar SARIF-bestanden")
     ap.add_argument("--secrets", required=True)
+    ap.add_argument("--tests", help="JSON van security_tests.py (optioneel)")
     ap.add_argument("--min-sast-score", type=float, default=7.0)
     args = ap.parse_args()
 
@@ -221,6 +242,8 @@ def main():
     findings = (parse_sca(args.sca)
                 + parse_sarif(args.sast, args.min_sast_score)
                 + parse_secrets(args.secrets))
+    if args.tests:
+        findings += parse_tests(args.tests)
 
     new_critical, accepted_hits, other = [], [], []
     used = set()
@@ -254,6 +277,10 @@ def main():
     if stale:
         lines += ["", "### Aanvaarding zonder bijhorende bevinding (opruimen)", ""]
         lines += [f"- {e.get('tool')}/{e.get('id')}" for e in stale]
+    if SKIPPED_TESTS:
+        lines += ["", "### Overgeslagen tests (geen bewijs van veiligheid)", "",
+                  "De app eist inloggen en de tests hebben nog geen testaccount. Voeg er een toe, "
+                  "anders blijven deze eisen ongetest:", ""] + [f"- {t}" for t in SKIPPED_TESTS]
     if accepted_hits:
         lines += ["", "### Aanvaarde bevindingen", "", "| Scan | Id | Verdict | Reden |", "|---|---|---|---|"]
         lines += [f"| {f.tool} | `{f.id}` | {e.get('verdict')} | {e.get('reason')} |" for f, e in accepted_hits]

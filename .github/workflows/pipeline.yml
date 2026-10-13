@@ -9,6 +9,10 @@
 #               "Static analysis for important client side components"  (L3, SPA)
 #   secrets  -> Test and Verification / Static depth for infrastructure:
 #               "Test for stored secrets in code"                       (L1)
+#   tests    -> Test and Verification / Application tests:
+#               "Security integration tests for important components"   (L3)
+#               Dynamic depth for applications: "Usage of different roles" (L2)
+#               Test-Intensity: "Regular automated tests"               (L2)
 #   gate     -> Test and Verification / Consolidation:
 #               "Treatment of defects with high or critical severity"   (L1)
 #               "Simple false positive treatment"                       (L1)
@@ -158,9 +162,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Gedragstests: statische scans zien geen autorisatiefouten. Daarom start deze job de app
+  # op de wegwerp-runner en probeert .github/scripts/security_tests.py het misbruik echt.
+  tests:
+    name: Beveiligingstests (gedrag van de app)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: App starten
+        run: docker compose up -d --build
+
+      - name: Tests uitvoeren
+        run: python3 .github/scripts/security_tests.py --base-url http://127.0.0.1:8080 --output tests.json
+
+      - name: Logs van de app bij een fout
+        if: failure()
+        run: docker compose logs --tail 80
+
+      - name: Opruimen
+        if: always()
+        run: docker compose down -v
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests
+          path: tests.json
+          if-no-files-found: error
+          retention-days: 14
+
   gate:
     name: Poort (nieuwe kritieke bevindingen)
-    needs: [sca, sast, secrets]
+    needs: [sca, sast, secrets, tests]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -193,6 +229,7 @@ jobs:
             --sca findings/sca.json \
             --sast "findings/*.sarif" \
             --secrets findings/gitleaks.json \
+            --tests findings/tests.json \
             --min-sast-score "$SAST_MIN_SCORE"
 
   # Stap 3: uitrollen. Enkel na een geslaagde poort en enkel bij een push naar main.
