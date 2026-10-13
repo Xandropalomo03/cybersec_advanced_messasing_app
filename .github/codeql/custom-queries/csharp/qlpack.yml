@@ -1,0 +1,4 @@
+name: unbreakable/custom-csharp-queries
+version: 0.0.0
+dependencies:
+  codeql/csharp-all: "*"

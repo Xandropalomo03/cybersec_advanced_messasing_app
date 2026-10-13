@@ -86,7 +86,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [csharp, javascript-typescript]
+        include:
+          - language: csharp
+            queries: "+.github/codeql/custom-queries/csharp"
+          - language: javascript-typescript
+            queries: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,6 +103,7 @@ jobs:
           config: |
             paths-ignore:
               - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
+            ${{ matrix.queries }}   # custom queries (enkel csharp), '+' = toevoegen aan standaard suite
 
       # upload: never -> de resultaten gaan niet naar het Security-tabblad (dat laat
       # de pipeline toch niet falen), maar naar een SARIF-bestand voor onze poort.
