@@ -21,6 +21,20 @@
     "reason": "Bewuste kwetsbaarheid van de starter app: de zoekterm uit de URL gaat via jQuery .html() de pagina in (DOM-XSS). Niet herstellen is toegelaten in deze opdracht. Oplossing later: .text() gebruiken en een Content-Security-Policy instellen."
   },
   {
+    "tool": "sast",
+    "id": "unbreakable/csharp/allow-any-origin",
+    "file": "app/Program.cs",
+    "verdict": "echt-probleem",
+    "reason": "Bewuste CORS configuratie van de starter app: AllowAnyOrigin() staat toe dat elke website API calls mag doen. In productie moet dit beperkt worden tot de eigen domein. Oplossing later: specifieke origins configureren."
+  },
+  {
+    "tool": "sast",
+    "id": "unbreakable/csharp/use-developer-exception-page",
+    "file": "app/Program.cs",
+    "verdict": "echt-probleem",
+    "reason": "Bewuste configuratie van de starter app: UseDeveloperExceptionPage() staat aan zonder IsDevelopment() check. In productie lekt dit stack traces en gevoelige informatie. Oplossing later: binnen if (app.Environment.IsDevelopment()) plaatsen."
+  },
+  {
     "tool": "secrets",
     "id": "993319e51d37302e31c80d95e47cab5b89f7d38c:app/appsettings.json:generic-api-key:15",
     "file": "app/appsettings.json",
