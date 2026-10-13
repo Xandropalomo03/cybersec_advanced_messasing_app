@@ -1,0 +1,25 @@
+title = "Unbreakable custom secret rules"
+
+[[rules]]
+id = "connection-string-password"
+description = "Connection string met Password= of Pwd= (PostgreSQL, SQL Server, etc.)"
+regex = '''(?i)(?:password|pwd)\s*=\s*([^;'"\s]{4,})(?=[;&"'\s]|$)'''
+secretGroup = 1
+tags = ["connection-string", "password"]
+entropy = 3.0
+
+[[rules]]
+id = "docker-compose-postgres-password"
+description = "Docker Compose POSTGRES_PASSWORD environment variable"
+regex = '''(?i)POSTGRES_PASSWORD\s*[:=]\s*["']?([^"'\s]{4,})'''
+secretGroup = 1
+tags = ["docker", "postgres", "password"]
+entropy = 3.0
+
+[[rules]]
+id = "docker-compose-mysql-password"
+description = "Docker Compose MYSQL_PASSWORD / MYSQL_ROOT_PASSWORD environment variable"
+regex = '''(?i)MYSQL_(ROOT_)?PASSWORD\s*[:=]\s*["']?([^"'\s]{4,})'''
+secretGroup = 2
+tags = ["docker", "mysql", "password"]
+entropy = 3.0
