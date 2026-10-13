@@ -88,9 +88,16 @@ jobs:
       matrix:
         include:
           - language: csharp
-            queries: "+.github/codeql/custom-queries/csharp"
+            # Eigen, volledige config per taal: interpolatie midden in een
+            # YAML-structuur maakt de config ongeldig voor CodeQL.
+            codeql-config: |
+              paths-ignore:
+                - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
+              queries: +.github/codeql/custom-queries/csharp   # '+' = toevoegen aan standaard suite
           - language: javascript-typescript
-            queries: ""
+            codeql-config: |
+              paths-ignore:
+                - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,10 +107,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-          config: |
-            paths-ignore:
-              - app/wwwroot/lib   # Bootstrap en jQuery van derden: dat is een zaak voor SCA
-            ${{ matrix.queries }}   # custom queries (enkel csharp), '+' = toevoegen aan standaard suite
+          config: ${{ matrix.codeql-config }}
 
       # upload: never -> de resultaten gaan niet naar het Security-tabblad (dat laat
       # de pipeline toch niet falen), maar naar een SARIF-bestand voor onze poort.
