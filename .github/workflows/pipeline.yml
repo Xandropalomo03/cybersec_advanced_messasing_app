@@ -13,6 +13,8 @@
 #               "Security integration tests for important components"   (L3)
 #               Dynamic depth for applications: "Usage of different roles" (L2)
 #               Test-Intensity: "Regular automated tests"               (L2)
+#   container-> Build / "Container image scanning"                     (L2)
+#               "Container hardening (non-root, no secrets)"            (L2)
 #   gate     -> Test and Verification / Consolidation:
 #               "Treatment of defects with high or critical severity"   (L1)
 #               "Simple false positive treatment"                       (L1)
@@ -24,7 +26,8 @@
 #     -> Build / "Building and testing of artifacts in virtualized environments" (L2)
 #
 # Wat is "kritiek"? (eigen keuze, zie scripts/security_gate.py)
-#   SCA: High of Critical | SAST: security-severity >= 7.0 | Secrets: alles.
+#   SCA: High of Critical | SAST: security-severity >= 7.0 | Secrets: alles
+#   Container: HIGH/CRITICAL CVEs, root user, exposed secrets
 #
 # De scans falen zelf nooit op een bevinding. Enkel de job "gate" beslist, zodat
 # aanvaarde bevindingen (.security/accepted-findings.json) op 1 plek beheerd worden.
@@ -194,9 +197,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Container scanning: Trivy (vulnerabilities + misconfig + secrets in image)
+  # Hadolint is optioneel; Trivy scant ook Dockerfile misconfiguraties (root user, etc.)
+  container-scan:
+    name: Container scan (Trivy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Trivy: vulnerability scan + misconfig scan (Dockerfile) + secret scan
+      - name: Build image voor scan
+        run: docker build -t unbreakable:scan app/
+
+      - name: Trivy scan (vuln + misconfig + secret)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'unbreakable:scan'
+          format: 'sarif'
+          output: 'trivy.sarif'
+          severity: 'HIGH,CRITICAL'
+          scanners: 'vuln,misconfig,secret'
+          exit-code: '0'  # gate beslist, niet de scan
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: container-scan
+          path: trivy.sarif
+          if-no-files-found: error
+          retention-days: 14
+
   gate:
     name: Poort (nieuwe kritieke bevindingen)
-    needs: [sca, sast, secrets, tests]
+    needs: [sca, sast, secrets, tests, container-scan]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -230,6 +265,7 @@ jobs:
             --sast "findings/*.sarif" \
             --secrets findings/gitleaks.json \
             --tests findings/tests.json \
+            --container findings/trivy.sarif \
             --min-sast-score "$SAST_MIN_SCORE"
 
   # Stap 3: uitrollen. Enkel na een geslaagde poort en enkel bij een push naar main.

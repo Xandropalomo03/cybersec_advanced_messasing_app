@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Poort van de pipeline: laat de run falen bij een NIEUWE kritieke bevinding.
 
-Leest de resultaten van vier controles:
+Leest de resultaten van vijf controles:
   - SCA      : uitvoer van `dotnet list package --vulnerable --format json`
   - SAST     : SARIF-bestanden van CodeQL
   - Secrets  : JSON-rapport van gitleaks
   - Tests    : JSON van security_tests.py (gedrag van de draaiende app)
+  - Container: SARIF van Trivy (image vulnerabilities + config issues)
 
 Een bevinding is "aanvaard" als ze in .security/accepted-findings.json staat,
 met een verdict en een reden. Een aanvaarding zonder reden laat de pipeline
@@ -18,6 +19,7 @@ Wat is "kritiek"?
               of level "error" als een regel geen score heeft
   - Secrets : elke gevonden geheim
   - Tests   : elke test die misbruik kan aantonen (elke test is een beveiligingseis)
+  - Container: severity HIGH of CRITICAL (CVE's, misconfiguraties)
 
 Enkel standaardbibliotheek, zodat er niets extra te installeren (en te vertrouwen) is.
 """
@@ -27,7 +29,7 @@ import json
 import os
 import sys
 
-TOOLS = ("sca", "sast", "secrets", "tests")
+TOOLS = ("sca", "sast", "secrets", "tests", "container")
 VERDICTS = ("echt-probleem", "false-positive")
 MIN_REASON_LEN = 15
 
@@ -179,6 +181,32 @@ def parse_tests(path):
     return out
 
 
+def parse_trivy(path):
+    data = load_json(path)
+    out = []
+    for run in data.get("runs", []):
+        tool = run.get("tool", {})
+        rules = {}
+        for comp in [tool.get("driver", {})] + tool.get("extensions", []):
+            for rule in comp.get("rules") or []:
+                rules[rule.get("id")] = rule
+        for res in run.get("results", []):
+            if res.get("suppressions"):
+                continue
+            rid = res.get("ruleId") or res.get("rule", {}).get("id") or "onbekend"
+            rule = rules.get(rid, {})
+            # Trivy SARIF gebruikt "severity" in properties
+            sev = (rule.get("properties") or {}).get("severity", "UNKNOWN").lower()
+            critical = sev in ("high", "critical")
+            loc = ((res.get("locations") or [{}])[0]).get("physicalLocation", {})
+            out.append(Finding(
+                "container", rid, sev.upper(), critical,
+                " ".join(((res.get("message") or {}).get("text", "")).split()).replace("|", "/")[:160],
+                file=(loc.get("artifactLocation") or {}).get("uri", "?"),
+            ))
+    return out
+
+
 # ----------------------------------------------------------------------------
 # Aanvaarde bevindingen
 # ----------------------------------------------------------------------------
@@ -235,6 +263,7 @@ def main():
     ap.add_argument("--sast", required=True, help="glob naar SARIF-bestanden")
     ap.add_argument("--secrets", required=True)
     ap.add_argument("--tests", help="JSON van security_tests.py (optioneel)")
+    ap.add_argument("--container", help="Trivy SARIF bestand (optioneel)")
     ap.add_argument("--min-sast-score", type=float, default=7.0)
     args = ap.parse_args()
 
@@ -244,6 +273,8 @@ def main():
                 + parse_secrets(args.secrets))
     if args.tests:
         findings += parse_tests(args.tests)
+    if args.container:
+        findings += parse_trivy(args.container)
 
     new_critical, accepted_hits, other = [], [], []
     used = set()
