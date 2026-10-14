@@ -89,5 +89,19 @@
     "file": "DELETE /api/messages/{id}",
     "verdict": "echt-probleem",
     "reason": "Bewuste zwakte van de starter app: geen eigenaarcontrole bij verwijderen. Oplossing later: enkel de afzender of ontvanger mag verwijderen."
+  },
+  {
+    "tool": "container",
+    "id": "DS-0002",
+    "file": "app/Dockerfile",
+    "verdict": "echt-probleem",
+    "reason": "De container draait als root: het Dockerfile bevat geen USER-instructie. Bewuste starter app; oplossing later: een niet-root user aanmaken en met USER vastleggen."
+  },
+  {
+    "tool": "container",
+    "id": "CVE-2024-21907",
+    "file": "app/Unbreakable.deps.json",
+    "verdict": "echt-probleem",
+    "reason": "Zelfde kwetsbaarheid als bij SCA (Newtonsoft.Json 12.0.1), nu door Trivy in de containerlagen gezien. De library serialiseert enkel uitgaande data, misbruikbaarheid is laag. Updaten naar 13.0.1 bij de volgende opdracht."
   }
 ]

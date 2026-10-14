@@ -181,7 +181,7 @@ def parse_tests(path):
     return out
 
 
-def parse_trivy(path):
+def _parse_trivy_file(path):
     data = load_json(path)
     out = []
     for run in data.get("runs", []):
@@ -210,6 +210,16 @@ def parse_trivy(path):
                 " ".join(((res.get("message") or {}).get("text", "")).split()).replace("|", "/")[:160],
                 file=(loc.get("artifactLocation") or {}).get("uri", "?"),
             ))
+    return out
+
+
+def parse_trivy(pattern):
+    paths = sorted(glob.glob(pattern))
+    if not paths:
+        fail_closed(f"Geen Trivy-resultaten gevonden voor patroon {pattern}")
+    out = []
+    for path in paths:
+        out += _parse_trivy_file(path)
     return out
 
 
@@ -269,7 +279,7 @@ def main():
     ap.add_argument("--sast", required=True, help="glob naar SARIF-bestanden")
     ap.add_argument("--secrets", required=True)
     ap.add_argument("--tests", help="JSON van security_tests.py (optioneel)")
-    ap.add_argument("--container", help="Trivy SARIF bestand (optioneel)")
+    ap.add_argument("--container", help="glob naar Trivy SARIF-bestanden (optioneel)")
     ap.add_argument("--min-sast-score", type=float, default=7.0)
     args = ap.parse_args()
 
