@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Poort van de pipeline: laat de run falen bij een NIEUWE kritieke bevinding.
 
-Leest de resultaten van drie scans:
+Leest de resultaten van vijf controles:
   - SCA      : uitvoer van `dotnet list package --vulnerable --format json`
   - SAST     : SARIF-bestanden van CodeQL
   - Secrets  : JSON-rapport van gitleaks
+  - Tests    : JSON van security_tests.py (gedrag van de draaiende app)
+  - Container: SARIF van Trivy (image vulnerabilities + config issues)
 
 Een bevinding is "aanvaard" als ze in .security/accepted-findings.json staat,
 met een verdict en een reden. Een aanvaarding zonder reden laat de pipeline
@@ -16,6 +18,8 @@ Wat is "kritiek"?
   - SAST    : security-severity >= --min-sast-score (standaard 7.0),
               of level "error" als een regel geen score heeft
   - Secrets : elke gevonden geheim
+  - Tests   : elke test die misbruik kan aantonen (elke test is een beveiligingseis)
+  - Container: severity HIGH of CRITICAL (CVE's, misconfiguraties)
 
 Enkel standaardbibliotheek, zodat er niets extra te installeren (en te vertrouwen) is.
 """
@@ -25,7 +29,7 @@ import json
 import os
 import sys
 
-TOOLS = ("sca", "sast", "secrets")
+TOOLS = ("sca", "sast", "secrets", "tests", "container")
 VERDICTS = ("echt-probleem", "false-positive")
 MIN_REASON_LEN = 15
 
@@ -159,6 +163,66 @@ def parse_secrets(path):
     return out
 
 
+SKIPPED_TESTS = []
+
+
+def parse_tests(path):
+    data = load_json(path)
+    if not isinstance(data, dict) or "findings" not in data:
+        fail_closed(f"Verwacht een object met 'findings' in {path}")
+    SKIPPED_TESTS.extend(data.get("skipped", []))
+    out = []
+    for t in data["findings"]:
+        out.append(Finding(
+            "tests", t.get("id", "onbekend"), t.get("severity", "high"), True,
+            f"{t.get('title', '')} (verwacht {t.get('expected', '?')}, kreeg {t.get('actual', '?')})"[:200],
+            file=t.get("endpoint"),
+        ))
+    return out
+
+
+def _parse_trivy_file(path):
+    data = load_json(path)
+    out = []
+    for run in data.get("runs", []):
+        tool = run.get("tool", {})
+        rules = {}
+        for comp in [tool.get("driver", {})] + tool.get("extensions", []):
+            for rule in comp.get("rules") or []:
+                rules[rule.get("id")] = rule
+        for res in run.get("results", []):
+            if res.get("suppressions"):
+                continue
+            rid = res.get("ruleId") or res.get("rule", {}).get("id") or "onbekend"
+            rule = rules.get(rid, {})
+            # Trivy SARIF: security-severity (CVSS score) of level
+            score = (rule.get("properties") or {}).get("security-severity")
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                score = None
+            level = res.get("level") or (rule.get("defaultConfiguration") or {}).get("level", "warning")
+            critical = score >= 7.0 if score is not None else level == "error"
+            sev = sarif_label(score, level)
+            loc = ((res.get("locations") or [{}])[0]).get("physicalLocation", {})
+            out.append(Finding(
+                "container", rid, sev.upper(), critical,
+                " ".join(((res.get("message") or {}).get("text", "")).split()).replace("|", "/")[:160],
+                file=(loc.get("artifactLocation") or {}).get("uri", "?"),
+            ))
+    return out
+
+
+def parse_trivy(pattern):
+    paths = sorted(glob.glob(pattern))
+    if not paths:
+        fail_closed(f"Geen Trivy-resultaten gevonden voor patroon {pattern}")
+    out = []
+    for path in paths:
+        out += _parse_trivy_file(path)
+    return out
+
+
 # ----------------------------------------------------------------------------
 # Aanvaarde bevindingen
 # ----------------------------------------------------------------------------
@@ -214,6 +278,8 @@ def main():
     ap.add_argument("--sca", required=True)
     ap.add_argument("--sast", required=True, help="glob naar SARIF-bestanden")
     ap.add_argument("--secrets", required=True)
+    ap.add_argument("--tests", help="JSON van security_tests.py (optioneel)")
+    ap.add_argument("--container", help="glob naar Trivy SARIF-bestanden (optioneel)")
     ap.add_argument("--min-sast-score", type=float, default=7.0)
     args = ap.parse_args()
 
@@ -221,6 +287,10 @@ def main():
     findings = (parse_sca(args.sca)
                 + parse_sarif(args.sast, args.min_sast_score)
                 + parse_secrets(args.secrets))
+    if args.tests:
+        findings += parse_tests(args.tests)
+    if args.container:
+        findings += parse_trivy(args.container)
 
     new_critical, accepted_hits, other = [], [], []
     used = set()
@@ -254,6 +324,10 @@ def main():
     if stale:
         lines += ["", "### Aanvaarding zonder bijhorende bevinding (opruimen)", ""]
         lines += [f"- {e.get('tool')}/{e.get('id')}" for e in stale]
+    if SKIPPED_TESTS:
+        lines += ["", "### Overgeslagen tests (geen bewijs van veiligheid)", "",
+                  "De app eist inloggen en de tests hebben nog geen testaccount. Voeg er een toe, "
+                  "anders blijven deze eisen ongetest:", ""] + [f"- {t}" for t in SKIPPED_TESTS]
     if accepted_hits:
         lines += ["", "### Aanvaarde bevindingen", "", "| Scan | Id | Verdict | Reden |", "|---|---|---|---|"]
         lines += [f"| {f.tool} | `{f.id}` | {e.get('verdict')} | {e.get('reason')} |" for f, e in accepted_hits]
