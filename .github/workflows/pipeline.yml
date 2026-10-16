@@ -184,18 +184,18 @@ jobs:
           persist-credentials: false
 
       - name: App starten
-        run: docker compose up -d --build
+        run: docker network create websec-unbreakable-g08_default && docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
 
       - name: Tests uitvoeren
         run: python3 .github/scripts/security_tests.py --base-url http://127.0.0.1:8080 --output tests.json
 
       - name: Logs van de app bij een fout
         if: failure()
-        run: docker compose logs --tail 80
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail 80
 
       - name: Opruimen
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
