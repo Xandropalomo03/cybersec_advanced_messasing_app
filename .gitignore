@@ -5,3 +5,9 @@ obj/
 *.user
 *.suo
 .env
+
+# lokale geheimen en certificaten
+.env
+*.pem
+*.key
+letsencrypt/
