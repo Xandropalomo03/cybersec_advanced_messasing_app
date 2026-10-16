@@ -1,0 +1,36 @@
+networks:
+  default:
+    name: websec-unbreakable-g08_default
+
+services:
+  bunkerweb:
+    image: bunkerity/bunkerweb:1.6.16
+    container_name: bunkerweb
+    restart: unless-stopped
+    ports:
+      - "[::]:80:8080/tcp"
+      - "[::]:443:8443/tcp"
+    environment:
+      - API_WHITELIST_IP=127.0.0.1 172.0.0.0/8
+    depends_on:
+      - bw-scheduler
+
+  bw-scheduler:
+    image: bunkerity/bunkerweb-scheduler:1.6.16
+    container_name: bw-scheduler
+    restart: unless-stopped
+    volumes:
+      - bw-data:/data
+    environment:
+      - BUNKERWEB_INSTANCES=bunkerweb
+      - API_WHITELIST_IP=127.0.0.1 172.0.0.0/8
+      - SERVER_NAME=g08.ipv6.thelastgym.be
+      - USE_REVERSE_PROXY=yes
+      - REVERSE_PROXY_URL=/
+      - REVERSE_PROXY_HOST=http://unbreakable-app-g08:8080
+      - AUTO_LETS_ENCRYPT=yes
+      - EMAIL_LETS_ENCRYPT=soufiane.chaham@student.ap.be
+      - USE_LETS_ENCRYPT_STAGING=no
+
+volumes:
+  bw-data:
